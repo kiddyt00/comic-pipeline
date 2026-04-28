@@ -62,13 +62,19 @@ func TestDeleteProject(t *testing.T) {
 	s := setupStore(t)
 	ctx := context.Background()
 
-	p, _ := s.CreateProject(ctx, "测试", "世界", "故事")
-	err := s.DeleteProject(ctx, p.ID)
+	p, err := s.CreateProject(ctx, "测试", "世界", "故事")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	err = s.DeleteProject(ctx, p.ID)
 	if err != nil {
 		t.Fatalf("DeleteProject: %v", err)
 	}
 
-	got, _ := s.GetProject(ctx, p.ID)
+	got, err := s.GetProject(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
 	if got != nil {
 		t.Error("expected nil after delete")
 	}
