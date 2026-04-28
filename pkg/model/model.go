@@ -5,23 +5,23 @@ import "time"
 type ProjectStatus string
 
 const (
-	StatusDraft    ProjectStatus = "draft"
+	StatusDraft     ProjectStatus = "draft"
 	StatusProducing ProjectStatus = "producing"
-	StatusComplete ProjectStatus = "complete"
+	StatusComplete  ProjectStatus = "complete"
 )
 
 type Project struct {
-	ID           string        `json:"id"`
-	Title        string        `json:"title"`
-	WorldSetting string        `json:"world_setting"`
-	StoryText    string        `json:"story_text"`
-	CoverURL     string        `json:"cover_url,omitempty"`
-	Tags         []string      `json:"tags,omitempty"`
-	Status       ProjectStatus `json:"status"`
-	CharacterCount int         `json:"character_count"`
-	EpisodeCount   int         `json:"episode_count"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	ID             string        `json:"id"`
+	Title          string        `json:"title"`
+	WorldSetting   string        `json:"world_setting"`
+	StoryText      string        `json:"story_text"`
+	CoverURL       string        `json:"cover_url,omitempty"`
+	Tags           []string      `json:"tags,omitempty"`
+	Status         ProjectStatus `json:"status"`
+	CharacterCount int           `json:"character_count"`
+	EpisodeCount   int           `json:"episode_count"`
+	CreatedAt      time.Time     `json:"created_at"`
+	UpdatedAt      time.Time     `json:"updated_at"`
 }
 
 type SceneStatus string

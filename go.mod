@@ -2,7 +2,11 @@ module github.com/kiddyt00/comic-pipeline
 
 go 1.24.3
 
-require github.com/spf13/cobra v1.9.1
+require (
+	github.com/google/uuid v1.6.0
+	github.com/mattn/go-sqlite3 v1.14.42
+	github.com/spf13/cobra v1.9.1
+)
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
