@@ -8,13 +8,82 @@
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen">
-    <div class="max-w-6xl mx-auto px-4 py-8">
-        <a href="/" class="text-gray-400 hover:text-gray-200 mb-4 inline-block">← 返回</a>
-        <h1 class="text-2xl font-bold mb-4">{{ .Project.Title }}</h1>
-        <p class="text-gray-400 mb-6">世界观：{{ .Project.WorldSetting }}</p>
-        <p class="text-gray-500 mb-8">状态：{{ .Project.Status }} | {{ .Project.EpisodeCount }} 集</p>
-
-        <div class="text-center py-8 text-gray-500">更多功能开发中...</div>
+    <div class="flex h-screen">
+        <!-- 左侧：集列表 -->
+        <div class="w-64 bg-gray-900 border-r border-gray-800 p-4 flex flex-col">
+            <a href="/" class="text-gray-400 hover:text-gray-200 mb-4 text-sm">← 返回</a>
+            <h1 class="text-lg font-bold mb-2 truncate">{{ .Project.Title }}</h1>
+            <p class="text-xs text-gray-500 mb-4">{{ .Project.WorldSetting }}</p>
+            
+            <div class="text-sm text-gray-400 mb-2">剧集</div>
+            <div class="flex-1 overflow-y-auto space-y-1 mb-4">
+                {{ range .Episodes }}
+                <a href="/projects/{{ $.Project.ID }}?ep={{ .ID }}"
+                   class="block px-3 py-2 rounded text-sm hover:bg-gray-800 transition-colors
+                          {{ if eq .Status "complete" }}text-green-400{{ else if eq .Status "pending" }}text-gray-500{{ else }}text-yellow-400{{ end }}">
+                    第{{ .EpisodeNum }}集 {{ if .Title }}{{ .Title }}{{ end }}
+                </a>
+                {{ else }}
+                <div class="text-gray-600 text-sm py-2">暂无剧集</div>
+                {{ end }}
+            </div>
+            
+            <form hx-post="/projects/{{ .Project.ID }}/episodes" hx-swap="none"
+                  hx-on::after-request="location.reload()">
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 rounded">
+                    + 新建剧集
+                </button>
+            </form>
+        </div>
+        
+        <!-- 右侧：当前集进度 -->
+        <div class="flex-1 p-6 overflow-y-auto">
+            {{ if .CurrentEp }}
+            <div class="mb-6">
+                <h2 class="text-xl font-bold mb-2">第{{ .CurrentEp.EpisodeNum }}集</h2>
+                <div class="flex gap-4 text-sm text-gray-400 mb-4">
+                    <span>状态：<span class="text-yellow-400">{{ .CurrentEp.Status }}</span></span>
+                    <span>镜头数：{{ .CurrentEp.SceneCount }}</span>
+                </div>
+                
+                <!-- 进度条 -->
+                <div class="flex gap-2 text-xs mb-6">
+                    <div class="flex-1 text-center py-1 rounded bg-indigo-600">剧本</div>
+                    <div class="flex-1 text-center py-1 rounded bg-gray-800 text-gray-500">分镜</div>
+                    <div class="flex-1 text-center py-1 rounded bg-gray-800 text-gray-500">图片</div>
+                    <div class="flex-1 text-center py-1 rounded bg-gray-800 text-gray-500">视频</div>
+                    <div class="flex-1 text-center py-1 rounded bg-gray-800 text-gray-500">配音</div>
+                    <div class="flex-1 text-center py-1 rounded bg-gray-800 text-gray-500">完成</div>
+                </div>
+                
+                <div class="flex gap-2">
+                    <button hx-post="/projects/{{ $.Project.ID }}/episodes/{{ .CurrentEp.ID }}/run"
+                            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm">
+                        ▶ 开始生成
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 脚本预览 -->
+            {{ if .CurrentEp.ScriptText }}
+            <div class="bg-gray-900 rounded-lg p-4 mb-6 border border-gray-800">
+                <h3 class="text-sm font-semibold text-gray-400 mb-2">剧本</h3>
+                <pre class="text-sm text-gray-300 whitespace-pre-wrap font-sans">{{ .CurrentEp.ScriptText }}</pre>
+            </div>
+            {{ end }}
+            
+            <!-- 镜头卡片 -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" id="scene-cards"
+                 hx-get="/projects/{{ $.Project.ID }}/episodes/{{ .CurrentEp.ID }}/scenes" hx-trigger="load, every 5s">
+                <div class="text-gray-500 col-span-full text-center py-8">加载镜头数据中...</div>
+            </div>
+            
+            {{ else }}
+            <div class="flex items-center justify-center h-full text-gray-500">
+                <p>点击「+ 新建剧集」开始制作</p>
+            </div>
+            {{ end }}
+        </div>
     </div>
 </body>
 </html>

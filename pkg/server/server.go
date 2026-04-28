@@ -36,6 +36,7 @@ func Serve(ctx context.Context, dbPath, n8nBaseURL, outputDir string, port int) 
 	mux.HandleFunc("DELETE /projects/{id}", srv.handleDeleteProject)
 	mux.HandleFunc("POST /projects/{id}/episodes", srv.handleCreateEpisode)
 	mux.HandleFunc("POST /projects/{id}/episodes/{epId}/run", srv.handleTriggerPipeline)
+	mux.HandleFunc("GET /projects/{id}/episodes/{epId}/scenes", srv.handleScenesFragment)
 	mux.HandleFunc("POST /internal/callback", srv.handleCallback)
 	mux.HandleFunc("GET /output/", srv.handleServeOutput)
 

@@ -1,0 +1,27 @@
+{{ range . }}
+<div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+    <div class="aspect-video bg-gray-800 flex items-center justify-center">
+        {{ if .SelectedImage }}
+        <img src="{{ .SelectedImage }}" class="w-full h-full object-cover" />
+        {{ else if .ImageCandidates }}
+        <img src="{{ index .ImageCandidates 0 }}" class="w-full h-full object-cover" />
+        {{ else }}
+        <span class="text-gray-600 text-2xl">🎬</span>
+        {{ end }}
+    </div>
+    <div class="p-2">
+        <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400">镜头 {{ .SceneNum }}</span>
+            <span class="text-xs px-1.5 py-0.5 rounded 
+                {{ if eq .Status "complete" }}bg-green-900 text-green-400
+                {{ else if eq .Status "pending" }}bg-gray-800 text-gray-500
+                {{ else }}bg-yellow-900 text-yellow-400{{ end }}">
+                {{ .Status }}
+            </span>
+        </div>
+        <p class="text-xs text-gray-500 mt-1 truncate">{{ .Description }}</p>
+    </div>
+</div>
+{{ else }}
+<div class="text-gray-500 col-span-full text-center py-4 text-sm">暂无镜头数据</div>
+{{ end }}

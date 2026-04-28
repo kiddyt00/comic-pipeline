@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/kiddyt00/comic-pipeline/pkg/model"
 )
 
 func (srv *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -48,10 +50,30 @@ func (srv *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	episodes, _ := srv.store.ListEpisodes(r.Context(), id)
+
+	var currentEp *model.Episode
+	epID := r.URL.Query().Get("ep")
+	for i, ep := range episodes {
+		if ep.ID == epID {
+			currentEp = &episodes[i]
+			break
+		}
+	}
+	if currentEp == nil && len(episodes) > 0 {
+		currentEp = &episodes[0]
+	}
+
+	var scenes []model.Scene
+	if currentEp != nil {
+		scenes, _ = srv.store.ListScenes(r.Context(), currentEp.ID)
+	}
+
 	data := struct {
-		Project  interface{}
-		Episodes interface{}
-	}{project, episodes}
+		Project   *model.Project
+		Episodes  []model.Episode
+		CurrentEp *model.Episode
+		Scenes    []model.Scene
+	}{project, episodes, currentEp, scenes}
 	render(w, "project.html", data)
 }
 
@@ -65,9 +87,25 @@ func (srv *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	render(w, "_project_list.html", projects)
 }
 
-// 占位 handler（后续任务实现）
 func (srv *Server) handleCreateEpisode(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	projectID := r.PathValue("id")
+
+	project, err := srv.store.GetProject(r.Context(), projectID)
+	if err != nil || project == nil {
+		http.Error(w, "项目不存在", http.StatusNotFound)
+		return
+	}
+
+	nextNum := project.EpisodeCount + 1
+	_, err = srv.store.CreateEpisode(r.Context(), projectID, nextNum)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("创建剧集失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	srv.store.UpdateProjectStatus(r.Context(), projectID, model.StatusProducing, nextNum)
+
+	http.Redirect(w, r, "/projects/"+projectID, http.StatusSeeOther)
 }
 func (srv *Server) handleTriggerPipeline(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not implemented", http.StatusNotImplemented)
@@ -77,4 +115,10 @@ func (srv *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 }
 func (srv *Server) handleServeOutput(w http.ResponseWriter, r *http.Request) {
 	http.StripPrefix("/output/", http.FileServer(http.Dir(srv.outputDir))).ServeHTTP(w, r)
+}
+
+func (srv *Server) handleScenesFragment(w http.ResponseWriter, r *http.Request) {
+	epID := r.PathValue("epId")
+	scenes, _ := srv.store.ListScenes(r.Context(), epID)
+	render(w, "_scene_cards.html", scenes)
 }
