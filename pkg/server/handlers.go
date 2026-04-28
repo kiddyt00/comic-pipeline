@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/kiddyt00/comic-pipeline/pkg/model"
+	"github.com/kiddyt00/comic-pipeline/pkg/n8n"
 )
 
 func (srv *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -108,10 +110,102 @@ func (srv *Server) handleCreateEpisode(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/projects/"+projectID, http.StatusSeeOther)
 }
 func (srv *Server) handleTriggerPipeline(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	projectID := r.PathValue("id")
+	epID := r.PathValue("epId")
+
+	project, err := srv.store.GetProject(r.Context(), projectID)
+	if err != nil || project == nil {
+		http.Error(w, "项目不存在", http.StatusNotFound)
+		return
+	}
+
+	ep, err := srv.store.GetEpisode(r.Context(), epID)
+	if err != nil || ep == nil {
+		http.Error(w, "剧集不存在", http.StatusNotFound)
+		return
+	}
+
+	callbackURL := fmt.Sprintf("http://%s/internal/callback", r.Host)
+
+	payload := n8n.TriggerPayload{
+		ProjectID:     projectID,
+		EpisodeID:     epID,
+		EpisodeNum:    ep.EpisodeNum,
+		WorldSetting:  project.WorldSetting,
+		StoryText:     project.StoryText,
+		CallbackURL:   callbackURL,
+		ImageProvider: "jimeng",
+		VideoProvider: "kling",
+		TTSProvider:   "edge-tts",
+		OutputFormat:  "bilibili_1080p",
+	}
+
+	if err := srv.n8nClient.TriggerEpisode(r.Context(), payload); err != nil {
+		http.Error(w, fmt.Sprintf("触发流水线失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	srv.store.UpdateEpisodeStatus(r.Context(), epID, model.SceneScriptDone, "")
+
+	w.Header().Set("HX-Refresh", "true")
+	w.WriteHeader(http.StatusOK)
 }
+
+type callbackBody struct {
+	ProjectID string `json:"project_id"`
+	EpisodeID string `json:"episode_id"`
+	Event     string `json:"event"` // script_done | scene_image_done | scene_video_done | tts_done | episode_complete | error
+	SceneNum  int    `json:"scene_num,omitempty"`
+	Data      struct {
+		ScriptText    string        `json:"script_text,omitempty"`
+		SceneCount    int           `json:"scene_count,omitempty"`
+		Scenes        []model.Scene `json:"scenes,omitempty"`
+		Candidates    []string      `json:"candidates,omitempty"`
+		VideoURL      string        `json:"video_url,omitempty"`
+		AudioURL      string        `json:"audio_url,omitempty"`
+		FinalVideoURL string        `json:"final_video_url,omitempty"`
+		Error         string        `json:"error,omitempty"`
+	} `json:"data"`
+}
+
 func (srv *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	var cb callbackBody
+	if err := json.NewDecoder(r.Body).Decode(&cb); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	switch cb.Event {
+	case "script_done":
+		srv.store.UpdateEpisodeScript(r.Context(), cb.EpisodeID, cb.Data.ScriptText, cb.Data.SceneCount)
+		srv.store.UpsertScenes(r.Context(), cb.EpisodeID, cb.Data.Scenes)
+	case "scene_image_done":
+		scene, err := srv.store.GetSceneByEpisodeAndNum(r.Context(), cb.EpisodeID, cb.SceneNum)
+		if err == nil && scene != nil {
+			srv.store.UpdateSceneStatus(r.Context(), scene.ID, model.SceneImageDone,
+				cb.Data.Candidates, "", "", "")
+		}
+	case "scene_video_done":
+		scene, err := srv.store.GetSceneByEpisodeAndNum(r.Context(), cb.EpisodeID, cb.SceneNum)
+		if err == nil && scene != nil {
+			srv.store.UpdateSceneStatus(r.Context(), scene.ID, model.SceneVideoDone,
+				nil, "", cb.Data.VideoURL, "")
+		}
+	case "tts_done":
+		// TTS complete — could update scene audio URLs
+	case "episode_complete":
+		srv.store.UpdateEpisodeStatus(r.Context(), cb.EpisodeID, model.SceneComplete, cb.Data.FinalVideoURL)
+	case "error":
+		if cb.SceneNum > 0 {
+			scene, err := srv.store.GetSceneByEpisodeAndNum(r.Context(), cb.EpisodeID, cb.SceneNum)
+			if err == nil && scene != nil {
+				srv.store.UpdateSceneStatus(r.Context(), scene.ID, model.SceneFailed,
+					nil, "", "", cb.Data.Error)
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 func (srv *Server) handleServeOutput(w http.ResponseWriter, r *http.Request) {
 	http.StripPrefix("/output/", http.FileServer(http.Dir(srv.outputDir))).ServeHTTP(w, r)
