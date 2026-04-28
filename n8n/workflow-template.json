@@ -1,0 +1,253 @@
+{
+  "name": "AI Comic Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "episode-pipeline",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: Episode Pipeline",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "episode-pipeline-trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DEEPSEEK_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"deepseek-chat\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"你是专业的漫剧编剧。根据给定的世界观设定和故事文本，生成适合制作漫剧的中文剧本和分镜脚本。\\n\\n输出要求：\\n- 严格输出 JSON 格式，不要包含 markdown 代码块标记\\n- scene 数量控制在 5-10 个\\n- 每个 scene 包含：num（分镜号）、description（画面描述，用于图片生成）、dialogue（台词/旁白）、duration_ms（时长毫秒）\\n\\n输出 JSON 格式：\\n{\\n  \\\"script_text\\\": \\\"完整剧本文字\\\",\\n  \\\"scenes\\\": [\\n    {\\\"num\\\": 1, \\\"description\\\": \\\"...\\\", \\\"dialogue\\\": \\\"...\\\", \\\"duration_ms\\\": 5000},\\n    ...\\n  ]\\n}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"=世界观设定：\\n{{ $json.world_setting }}\\n\\n故事内容：\\n{{ $json.story_text }}\\n\\n角色列表：\\n{{ JSON.stringify($json.characters) }}\"\n    }\n  ],\n  \"temperature\": 0.8,\n  \"max_tokens\": 4096,\n  \"response_format\": { \"type\": \"json_object\" }\n}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "deepseek-script",
+      "name": "DeepSeek: 生成剧本和分镜",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ==========================================\n// Step 3: 解析 DeepSeek 返回的剧本 JSON\n// 提取 script_text 和 scenes，构建回调 payload\n// ==========================================\n\nconst items = $input.all();\n\nfor (const item of items) {\n  // 解析 HTTP Request 节点返回的 body\n  let body;\n  try {\n    body = JSON.parse(item.json.body || '{}');\n  } catch (e) {\n    throw new Error('无法解析 DeepSeek HTTP 响应: ' + e.message);\n  }\n\n  const content = body.choices?.[0]?.message?.content;\n  if (!content) {\n    throw new Error('DeepSeek 响应中未找到 choices[0].message.content');\n  }\n\n  // 尝试解析 DeepSeek 返回的 JSON（可能被包裹在 markdown 代码块中）\n  let parsed;\n  try {\n    parsed = JSON.parse(content);\n  } catch (e) {\n    // 尝试提取被 ```json ... ``` 包裹的 JSON 块\n    const match = content.match(/\\{[\\s\\S]*\\}/);\n    if (match) {\n      try {\n        parsed = JSON.parse(match[0]);\n      } catch (e2) {\n        throw new Error('无法解析 DeepSeek 返回的 JSON 内容');\n      }\n    } else {\n      throw new Error('DeepSeek 返回内容中未找到 JSON 结构');\n    }\n  }\n\n  // 验证必要字段\n  if (!parsed.scenes || !Array.isArray(parsed.scenes)) {\n    throw new Error('DeepSeek 返回的 JSON 缺少 scenes 数组');\n  }\n\n  // 构建回调 payload\n  return {\n    event: 'script_done',\n    project_id: item.json.project_id || $json.project_id,\n    episode_id: item.json.episode_id || $json.episode_id,\n    data: {\n      script_text: parsed.script_text || '',\n      scene_count: parsed.scenes.length,\n      scenes: parsed.scenes.map(s => ({\n        num: s.num,\n        description: s.description,\n        dialogue: s.dialogue || '',\n        duration_ms: s.duration_ms || 5000\n      }))\n    }\n  };\n}\n\n// fallback\nreturn { event: 'script_done', error: 'no items processed' };"
+      },
+      "id": "parse-script",
+      "name": "Code: 解析剧本并构建回调",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "callback-script-done",
+      "name": "Callback: script_done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-scenes",
+      "name": "Loop: Scenes (图片+视频)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.JIMENG_API_URL || 'https://api.jimeng.ai/v1/image/generate' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.JIMENG_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": \"漫剧风格，{{ $json.description }}\",\n  \"negative_prompt\": \"低质量，模糊，变形\",\n  \"width\": 1024,\n  \"height\": 576,\n  \"num_images\": 1\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "scene-image-gen",
+      "name": "即梦: 生成场景图片",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 解析即梦返回的图片 URL，回调 scene_image_done\nconst item = $input.first();\nconst imgResponse = JSON.parse(item.json.body || '{}');\nconst imageUrl = imgResponse.data?.[0]?.url || imgResponse.url || '';\n\nreturn {\n  event: 'scene_image_done',\n  project_id: item.json.project_id,\n  episode_id: item.json.episode_id,\n  scene_num: item.json.num,\n  data: {\n    scene_num: item.json.num,\n    image_url: imageUrl\n  }\n};"
+      },
+      "id": "parse-scene-image",
+      "name": "Code: 回调 scene_image_done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1750, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "callback-scene-image-done",
+      "name": "Callback: scene_image_done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Episode Pipeline": {
+      "main": [
+        [
+          {
+            "node": "DeepSeek: 生成剧本和分镜",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek: 生成剧本和分镜": {
+      "main": [
+        [
+          {
+            "node": "Code: 解析剧本并构建回调",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: 解析剧本并构建回调": {
+      "main": [
+        [
+          {
+            "node": "Callback: script_done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback: script_done": {
+      "main": [
+        [
+          {
+            "node": "Loop: Scenes (图片+视频)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop: Scenes (图片+视频)": {
+      "main": [
+        [
+          {
+            "node": "即梦: 生成场景图片",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "即梦: 生成场景图片": {
+      "main": [
+        [
+          {
+            "node": "Code: 回调 scene_image_done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: 回调 scene_image_done": {
+      "main": [
+        [
+          {
+            "node": "Callback: scene_image_done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    "ai-comic",
+    "pipeline"
+  ],
+  "pinData": {},
+  "versionId": "1.0.0"
+}
